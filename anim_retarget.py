@@ -15,16 +15,102 @@ Bone_Template = {
     "name": "",
     "position": (0,0,0),
     "rotation": (1,0,0,0),
+    "forward": (0,0,0),
+    "up": (0,0,0),
     "scale": (1,1,1),
 }
 
-Mapping_Template = {
-    
+Link_Template = {
+    "source": copy.deepcopy(Bone_Template),
+    "target": copy.deepcopy(Bone_Template),
+    "roll": 0.0,
+    "apply": {"pos": False, "rot": True, "scale": False},
+    "world": {"pos": False, "rot": True},
 }
 
-def apply_pose(obj):
-    source_arm = obj.retarget_source
+Mapping_Template = {
+    "source_armature": "",
+    "target_armature": "",
+    "links": [],
+}
+
+def make_mapping(obj):
+    source = obj.retarget_source
     links = obj.retarget_links
+    
+    mapping = copy.deepcopy(Mapping_Template)
+    mapping["source_armature"] = source.name
+    mapping["target_armature"] = obj.name
+    
+    for elem in links:
+        
+        if elem.target_bone not in obj.data.bones or elem.source_bone not in source.pose.bones:
+            continue
+        # source bone: source.pose.bones[elem.source_bone]
+        # target bone: obj.pose.bones[elem.target_bone]
+        
+        src_bone_dict = copy.deepcopy(Bone_Template)
+        src_bone_pose = source.pose.bones[elem.source_bone]
+        
+        src_bone_dict.update(
+            name = elem.source_bone,
+            position = tuple(src_bone_pose.matrix.translation) if elem.world_pos else tuple(src_bone_pose.location),
+            rotation = tuple(src_bone_pose.matrix_basis.to_quaternion()),
+            forward = tuple(src_bone_pose.matrix.to_3x3().col[1]),
+            up = tuple(src_bone_pose.matrix.to_3x3().col[2]),
+            scale = tuple(src_bone_pose.scale),
+        )
+        
+        trg_bone_dict = copy.deepcopy(Bone_Template)
+        trg_bone_pose = obj.pose.bones[elem.target_bone]
+        
+        trg_bone_dict.update(
+            name = elem.target_bone,
+            position = tuple(trg_bone_pose.location),
+            rotation = tuple(trg_bone_pose.matrix_basis.to_quaternion()),
+            forward = tuple(trg_bone_pose.matrix.to_3x3().col[1]),
+            up = tuple(trg_bone_pose.matrix.to_3x3().col[2]),
+            scale = tuple(trg_bone_pose.scale),
+        )
+        
+        link = copy.deepcopy(Link_Template)
+        link.update(
+            source = src_bone_dict,
+            target = trg_bone_dict,
+            roll = elem.roll,
+            apply = dict(pos=elem.apply_pos, rot=elem.apply_rot, scale=elem.apply_scale),
+            world = dict(pos=elem.world_pos, rot=elem.world_rot),
+        )
+        
+        mapping["links"].append(link)
+    
+    mapping["links"].sort(key=lambda l: len(obj.data.bones[l["target"]["name"]].parent_recursive))
+    
+    return mapping
+
+def calculate_pose(mapping):
+    for link in mapping["links"]:
+        src = link["source"]
+        trg = link["target"]
+
+        if link["apply"]["pos"]:
+            trg["position"] = src["position"]
+
+        if link["apply"]["rot"]:
+            if link["world"]["rot"]:
+                trg["forward"] = src["forward"]
+                trg["up"] = src["up"]
+            else:
+                trg["rotation"] = src["rotation"]
+
+        if link["apply"]["scale"]:
+            trg["scale"] = src["scale"]
+
+            
+
+def apply_pose(mapping):
+    return
+    
 
 ##### blender UI drawing
 
@@ -110,7 +196,9 @@ class PreviewPose(bpy.types.Operator):
     bl_label = "Preview Pose"
 
     def execute(self, context):
-        apply_pose(context.object)
+        mapping = make_mapping(context.object)
+        calculate_pose(mapping)
+        apply_pose(mapping)
         return {'FINISHED'}
             
 # main panel
@@ -130,6 +218,8 @@ class RetargetPanel(bpy.types.Panel):
         obj = context.object
         source = obj.retarget_source
         self.layout.prop(context.object, "retarget_source")
+        if source:
+            self.layout.operator("retarget.preview_pose")
         
 ##### blender addon registration
 
@@ -152,16 +242,17 @@ def register():
     print("Add-on succesfully enabled")
         
 def unregister():
-    del bpy.types.Object.retarget_links
-    del bpy.types.Object.retarget_source
-    bpy.utils.unregister_class(LinkItem)
+    bpy.utils.unregister_class(LinksPanel)
     
     bpy.utils.unregister_class(AddLink)
     bpy.utils.unregister_class(RemoveLink)
-    bpy.utils.unregister_class()
-
-    bpy.utils.unregister_class(LinksPanel)
+    bpy.utils.unregister_class(PreviewPanel)
+    
     bpy.utils.unregister_class(RetargetPanel)
+    
+    del bpy.types.Object.retarget_links
+    del bpy.types.Object.retarget_source
+    bpy.utils.unregister_class(LinkItem)
     
     print("Add-on Disabled")
         
