@@ -1,5 +1,6 @@
 import bpy
 import copy
+from mathutils import Vector, Matrix, Quaternion
 
 bl_info = {
     "name": "Simple Anim Retarget",
@@ -106,10 +107,50 @@ def calculate_pose(mapping):
         if link["apply"]["scale"]:
             trg["scale"] = src["scale"]
 
-            
+def build_rotation_matrix(forward, up, roll):
+    y = Vector(forward).normalized()
+    z = Vector(up).normalized()
+    z = Quaternion(y, roll) @ z 
+    x = y.cross(z).normalized()
+    z = x.cross(y)       
+    return Matrix((x, y, z)).transposed().to_4x4()            
 
 def apply_pose(mapping):
-    return
+    
+    target = bpy.data.objects[mapping["target_armature"]]
+
+    for link in mapping["links"]:
+        trg = link["target"]
+        trg_bone_pose = target.pose.bones[trg["name"]]
+        old_scale = tuple(trg_bone_pose.scale)
+
+        world_pos = link["apply"]["pos"] and link["world"]["pos"]
+        world_rot = link["apply"]["rot"] and link["world"]["rot"]
+        
+        if world_pos or world_rot:
+            matrix = trg_bone_pose.matrix.copy()
+
+            if world_rot:
+                translation = matrix.translation.copy()
+                matrix = build_rotation_matrix(trg["forward"], trg["up"], link["roll"])
+                matrix.translation = translation
+
+            if world_pos:
+                matrix.translation = trg["position"]
+
+            trg_bone_pose.matrix = matrix
+            
+        if link["apply"]["pos"] and not link["world"]["pos"]:
+            trg_bone_pose.location = trg["position"]
+
+        if link["apply"]["rot"] and not link["world"]["rot"]:
+            if trg_bone_pose.rotation_mode == 'QUATERNION':
+                trg_bone_pose.rotation_quaternion = trg["rotation"]
+            elif trg_bone_pose.rotation_mode != 'AXIS_ANGLE':
+                trg_bone_pose.rotation_euler = Quaternion(trg["rotation"]).to_euler(trg_bone_pose.rotation_mode)
+
+        trg_bone_pose.scale = trg["scale"] if link["apply"]["scale"] else old_scale
+        bpy.context.view_layer.update()
     
 
 ##### blender UI drawing
