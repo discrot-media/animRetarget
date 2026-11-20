@@ -241,6 +241,14 @@ class PreviewPose(bpy.types.Operator):
         calculate_pose(mapping)
         apply_pose(mapping)
         return {'FINISHED'}
+
+@persistent
+def live_retarget(scene):
+    for obj in bpy.data.objects:
+        if obj.type == 'ARMATURE' and obj.retarget_live and obj.retarget_source:
+            mapping = make_mapping(obj)
+            calculate_pose(mapping)
+            apply_pose(mapping)
             
 # main panel
 
@@ -277,6 +285,8 @@ def register():
     bpy.utils.register_class(AddLink)
     bpy.utils.register_class(RemoveLink)
     bpy.utils.register_class(PreviewPose)
+    bpy.types.Object.retarget_live = bpy.props.BoolProperty(name="Live Preview", default=False)
+    bpy.app.handlers.frame_change_post.append(live_retarget)
     
     bpy.utils.register_class(RetargetPanel)
     bpy.utils.register_class(LinksPanel)
@@ -290,6 +300,9 @@ def unregister():
     bpy.utils.unregister_class(PreviewPanel)
     
     bpy.utils.unregister_class(RetargetPanel)
+
+    bpy.app.handlers.frame_change_post.remove(live_retarget)
+    del bpy.types.Object.retarget_live
     
     del bpy.types.Object.retarget_links
     del bpy.types.Object.retarget_source
